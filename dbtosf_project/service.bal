@@ -1,5 +1,13 @@
+import ballerinax/salesforce;
 
 import ballerina/http;
+
+type SalesforceConfig record {
+    string baseUrl;
+    string token;
+};
+
+configurable SalesforceConfig sfConfig = ?;
 
 # A service representing a network-accessible API
 # bound to port `9090`.
@@ -21,6 +29,21 @@ service / on new http:Listener(9090) {
         ContactsOutput contactsOutput = transform(contactsInput);
         return contactsOutput;
     }
+
+    resource function get contacts() returns error?|ContactsOutput {
+
+        salesforce:SoqlResult|salesforce:Error soqlResult = salesforceEp->getQueryResult("SELECT Id,FirstName,LastName,Email,Phone FROM Contact");
+        if (soqlResult is salesforce:SoqlResult) {
+
+            json results = soqlResult.toJson();
+            ContactsInput salesforceContactsResponse = check results.cloneWithType(ContactsInput);
+            ContactsOutput contacts = transform(salesforceContactsResponse);
+            return contacts;
+        } else {
+            return error(soqlResult.message());
+
+        }
+    }
 }
 
 type Attributes record {
@@ -30,8 +53,8 @@ type Attributes record {
 
 type ContactsItem record {
     string fullName;
-    string phoneNumber;
-    string email;
+    (anydata|string)? phoneNumber;
+    (anydata|string)? email;
     string id;
 };
 
@@ -45,8 +68,8 @@ type RecordsItem record {
     string Id;
     string FirstName;
     string LastName;
-    string Email;
-    string Phone;
+    (anydata|string)? Email;
+    (anydata|string)? Phone;
 };
 
 type ContactsInput record {
@@ -59,9 +82,16 @@ function transform(ContactsInput contactsInput) returns ContactsOutput => {
     numberOfContacts: contactsInput.totalSize,
     contacts: from var recordsItem in contactsInput.records
         select {
-            fullName: recordsItem.FirstName.concat(recordsItem.LastName),
+            fullName: recordsItem.FirstName.concat(" ",recordsItem.LastName),
             phoneNumber: recordsItem.Phone,
             email: recordsItem.Email,
             id: recordsItem.Id
         }
 };
+
+salesforce:Client salesforceEp = check new (config = {
+    baseUrl: sfConfig.baseUrl,
+    auth: {
+        token: sfConfig.token
+    }
+});
